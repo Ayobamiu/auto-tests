@@ -1,5 +1,6 @@
-const { Octokit } = require('@octokit/rest');
-const axios = require('axios');
+const core = require('@actions/core');
+const { exec } = require('@actions/exec');
+const github = require('@actions/github');
 const fs = require('fs');
 const path = require('path');
 
@@ -13,19 +14,21 @@ async function run() {
         const context = github.context;
         const { owner, repo, number } = context.issue;
 
-        // Initialize Octokit
-        const octokit = new Octokit({
-            auth: githubToken
-        });
-
         console.log(`🚀 Starting test generation for PR #${number} in ${owner}/${repo}`);
 
+        // Use GitHub REST API directly with the token
+        const headers = {
+            'Authorization': `token ${githubToken}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'generate-tests-action'
+        };
+
         // Get PR details
-        const { data: pr } = await octokit.pulls.get({
-            owner,
-            repo,
-            pull_number: number
-        });
+        const prResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${number}`, { headers });
+        if (!prResponse.ok) {
+            throw new Error(`Failed to get PR details: ${prResponse.statusText}`);
+        }
+        const pr = await prResponse.json();
 
         const baseSha = pr.base.sha;
         const headSha = pr.head.sha;
@@ -33,11 +36,11 @@ async function run() {
         console.log(`📊 Comparing ${baseSha}...${headSha}`);
 
         // Get files changed in the PR
-        const { data: files } = await octokit.pulls.listFiles({
-            owner,
-            repo,
-            pull_number: number
-        });
+        const filesResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${number}/files`, { headers });
+        if (!filesResponse.ok) {
+            throw new Error(`Failed to get PR files: ${filesResponse.statusText}`);
+        }
+        const files = await filesResponse.json();
 
         // Filter for TypeScript/JavaScript files
         const tsJsFiles = files.filter(file =>
@@ -55,12 +58,13 @@ async function run() {
                 console.log(`📝 Processing ${file.filename}...`);
 
                 // Get file content
-                const { data: fileContent } = await octokit.repos.getContent({
-                    owner,
-                    repo,
-                    path: file.filename,
-                    ref: headSha
-                });
+                const contentResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${file.filename}?ref=${headSha}`, { headers });
+                if (!contentResponse.ok) {
+                    console.warn(`⚠️ Could not get content for ${file.filename}: ${contentResponse.statusText}`);
+                    continue;
+                }
+
+                const fileContent = await contentResponse.json();
 
                 // Decode content (GitHub returns base64 encoded content)
                 const content = Buffer.from(fileContent.content, 'base64').toString('utf-8');
@@ -76,17 +80,25 @@ async function run() {
                 // Send to backend for test generation
                 console.log(`🤖 Generating ${framework} tests for ${file.filename}...`);
 
-                const response = await axios.post(`${backendUrl}/api/generate-tests`, {
-                    code: content,
-                    framework: framework
-                }, {
-                    timeout: 30000, // 30 second timeout
+                const testResponse = await fetch(`${backendUrl}/api/generate-tests`, {
+                    method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
-                    }
+                    },
+                    body: JSON.stringify({
+                        code: content,
+                        framework: framework
+                    })
                 });
 
-                if (response.data && response.data.tests) {
+                if (!testResponse.ok) {
+                    console.warn(`⚠️ Backend request failed for ${file.filename}: ${testResponse.statusText}`);
+                    continue;
+                }
+
+                const testData = await testResponse.json();
+
+                if (testData && testData.tests) {
                     // Create test file path
                     const dirName = path.dirname(file.filename);
                     const baseName = path.basename(file.filename, path.extname(file.filename));
@@ -99,7 +111,7 @@ async function run() {
                     }
 
                     // Write test file
-                    fs.writeFileSync(testFilePath, response.data.tests);
+                    fs.writeFileSync(testFilePath, testData.tests);
 
                     console.log(`✅ Generated tests saved to ${testFilePath}`);
 
@@ -127,11 +139,6 @@ async function run() {
         core.setFailed(error.message);
     }
 }
-
-// Import core and exec from @actions/core and @actions/exec
-const core = require('@actions/core');
-const { exec } = require('@actions/exec');
-const github = require('@actions/github');
 
 // Run the action
 run();
