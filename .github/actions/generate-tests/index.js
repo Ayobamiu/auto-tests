@@ -1,20 +1,28 @@
-const core = require('@actions/core');
-const { exec } = require('@actions/exec');
-const github = require('@actions/github');
 const fs = require('fs');
 const path = require('path');
 
 async function run() {
     try {
-        // Get action inputs
-        const githubToken = core.getInput('github-token', { required: true });
-        const backendUrl = core.getInput('backend-url') || 'http://localhost:3000';
+        // Get action inputs from environment variables
+        const githubToken = process.env.GITHUB_TOKEN;
+        const backendUrl = process.env.BACKEND_URL || 'http://localhost:3000';
 
-        // Get context
-        const context = github.context;
-        const { owner, repo, number } = context.issue;
+        if (!githubToken) {
+            throw new Error('GITHUB_TOKEN environment variable is required');
+        }
 
-        console.log(`🚀 Starting test generation for PR #${number} in ${owner}/${repo}`);
+        // Get context from environment variables
+        const owner = process.env.GITHUB_REPOSITORY_OWNER;
+        const repo = process.env.GITHUB_REPOSITORY.split('/')[1];
+        const prNumber = process.env.GITHUB_EVENT_PATH ?
+            JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')).pull_request.number :
+            process.env.GITHUB_REF_NAME?.replace('refs/pull/', '').replace('/merge', '');
+
+        if (!owner || !repo || !prNumber) {
+            throw new Error('Could not determine repository or PR information');
+        }
+
+        console.log(`🚀 Starting test generation for PR #${prNumber} in ${owner}/${repo}`);
 
         // Use GitHub REST API directly with the token
         const headers = {
@@ -24,7 +32,7 @@ async function run() {
         };
 
         // Get PR details
-        const prResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${number}`, { headers });
+        const prResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}`, { headers });
         if (!prResponse.ok) {
             throw new Error(`Failed to get PR details: ${prResponse.statusText}`);
         }
@@ -36,7 +44,7 @@ async function run() {
         console.log(`📊 Comparing ${baseSha}...${headSha}`);
 
         // Get files changed in the PR
-        const filesResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${number}/files`, { headers });
+        const filesResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/files`, { headers });
         if (!filesResponse.ok) {
             throw new Error(`Failed to get PR files: ${filesResponse.statusText}`);
         }
@@ -115,10 +123,13 @@ async function run() {
 
                     console.log(`✅ Generated tests saved to ${testFilePath}`);
 
+                    // Use git commands directly
+                    const { execSync } = require('child_process');
+
                     // Add and commit the test file
-                    await exec.exec('git', ['add', testFilePath]);
-                    await exec.exec('git', ['commit', '-m', `Add auto-generated tests for ${file.filename}`]);
-                    await exec.exec('git', ['push']);
+                    execSync(`git add ${testFilePath}`, { stdio: 'inherit' });
+                    execSync(`git commit -m "Add auto-generated tests for ${file.filename}"`, { stdio: 'inherit' });
+                    execSync('git push', { stdio: 'inherit' });
 
                     console.log(`🚀 Committed and pushed test file for ${file.filename}`);
 
@@ -132,11 +143,11 @@ async function run() {
             }
         }
 
-        console.log(`🎉 Test generation completed for PR #${number}`);
+        console.log(`🎉 Test generation completed for PR #${prNumber}`);
 
     } catch (error) {
         console.error('❌ Action failed:', error.message);
-        core.setFailed(error.message);
+        process.exit(1);
     }
 }
 
