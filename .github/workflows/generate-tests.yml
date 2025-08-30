@@ -25,6 +25,11 @@ jobs:
         with:
           node-version: '20'
       
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+      
       - name: Generate Tests
         uses: ./.github/actions/generate-tests
         env:
