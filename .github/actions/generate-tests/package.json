@@ -1,0 +1,20 @@
+{
+  "name": "generate-tests-action",
+  "version": "1.0.0",
+  "description": "GitHub Action to generate unit tests for changed files",
+  "main": "index.js",
+  "dependencies": {
+    "@octokit/rest": "^20.0.2",
+    "axios": "^1.6.2"
+  },
+  "devDependencies": {
+    "@vercel/ncc": "^0.38.1"
+  },
+  "scripts": {
+    "build": "ncc build index.js -o dist",
+    "package": "npm run build && git add -A dist"
+  },
+  "keywords": ["github-action", "testing", "unit-tests"],
+  "author": "",
+  "license": "MIT"
+}

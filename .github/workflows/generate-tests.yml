@@ -1,0 +1,64 @@
+name: Generate Tests
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  generate-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0  # Full history for git operations
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Generate Tests
+        uses: ./.github/actions/generate-tests
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          backend-url: ${{ secrets.BACKEND_URL || 'http://localhost:3000' }}
+        env:
+          # Optional: Set backend URL via environment variable
+          BACKEND_URL: ${{ secrets.BACKEND_URL || 'http://localhost:3000' }}
+      
+      - name: Create PR Comment
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            // Check if we already commented
+            const hasComment = comments.some(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('🧪 Auto-generated tests')
+            );
+            
+            if (!hasComment) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: `🧪 Auto-generated tests have been created for changed TypeScript/JavaScript files in this PR.
+                
+                The action automatically:
+                - Detected changed .ts/.js/.tsx/.jsx files
+                - Generated comprehensive unit tests using AI
+                - Saved tests in \`__tests__/\` directories
+                - Committed and pushed the test files
+                
+                Check the generated test files to ensure they meet your testing standards.`
+              });
+            }

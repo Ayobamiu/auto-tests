@@ -1,0 +1,13 @@
+name: 'Generate Tests'
+description: 'Automatically generates unit tests for changed TypeScript/JavaScript files in pull requests'
+inputs:
+  github-token:
+    description: 'GitHub token for accessing PR data'
+    required: true
+  backend-url:
+    description: 'URL of the auto-tests backend service'
+    required: false
+    default: 'http://localhost:3000'
+runs:
+  using: 'node20'
+  main: 'index.js'
