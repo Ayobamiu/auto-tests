@@ -40,8 +40,10 @@ async function run() {
 
         const baseSha = pr.base.sha;
         const headSha = pr.head.sha;
+        const headRef = pr.head.ref; // This is the branch name
 
         console.log(`📊 Comparing ${baseSha}...${headSha}`);
+        console.log(`🌿 Working on branch: ${headRef}`);
 
         // Get files changed in the PR
         const filesResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/files`, { headers });
@@ -127,6 +129,10 @@ async function run() {
                     const { execSync } = require('child_process');
 
                     try {
+                        // Check current git status
+                        console.log('📋 Current git status:');
+                        execSync('git status', { stdio: 'inherit' });
+
                         // Add the test file
                         execSync(`git add "${testFilePath}"`, { stdio: 'inherit' });
                         console.log(`✅ Added ${testFilePath} to git`);
@@ -135,9 +141,9 @@ async function run() {
                         execSync(`git commit -m "Add auto-generated tests for ${file.filename}"`, { stdio: 'inherit' });
                         console.log(`✅ Committed ${testFilePath}`);
 
-                        // Push the changes
-                        execSync('git push', { stdio: 'inherit' });
-                        console.log(`🚀 Pushed test file for ${file.filename}`);
+                        // Push to the specific branch using the proper syntax
+                        execSync(`git push origin HEAD:${headRef}`, { stdio: 'inherit' });
+                        console.log(`🚀 Pushed test file for ${file.filename} to ${headRef}`);
 
                     } catch (gitError) {
                         console.error(`❌ Git operation failed for ${file.filename}:`, gitError.message);
