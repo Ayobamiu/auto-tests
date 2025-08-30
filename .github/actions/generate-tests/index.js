@@ -123,15 +123,27 @@ async function run() {
 
                     console.log(`✅ Generated tests saved to ${testFilePath}`);
 
-                    // Use git commands directly
+                    // Use git commands directly with better error handling
                     const { execSync } = require('child_process');
 
-                    // Add and commit the test file
-                    execSync(`git add ${testFilePath}`, { stdio: 'inherit' });
-                    execSync(`git commit -m "Add auto-generated tests for ${file.filename}"`, { stdio: 'inherit' });
-                    execSync('git push', { stdio: 'inherit' });
+                    try {
+                        // Add the test file
+                        execSync(`git add "${testFilePath}"`, { stdio: 'inherit' });
+                        console.log(`✅ Added ${testFilePath} to git`);
 
-                    console.log(`🚀 Committed and pushed test file for ${file.filename}`);
+                        // Commit the test file
+                        execSync(`git commit -m "Add auto-generated tests for ${file.filename}"`, { stdio: 'inherit' });
+                        console.log(`✅ Committed ${testFilePath}`);
+
+                        // Push the changes
+                        execSync('git push', { stdio: 'inherit' });
+                        console.log(`🚀 Pushed test file for ${file.filename}`);
+
+                    } catch (gitError) {
+                        console.error(`❌ Git operation failed for ${file.filename}:`, gitError.message);
+                        // Continue with next file instead of failing the entire action
+                        continue;
+                    }
 
                 } else {
                     console.warn(`⚠️ No tests generated for ${file.filename}`);
