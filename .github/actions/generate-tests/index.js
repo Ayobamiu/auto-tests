@@ -109,6 +109,29 @@ async function run() {
                 const testData = await testResponse.json();
 
                 if (testData && testData.tests) {
+                    // Clean the test content by removing markdown delimiters
+                    let cleanTestContent = testData.tests;
+
+                    // Remove markdown code block delimiters if they exist
+                    if (cleanTestContent.startsWith('```typescript\n')) {
+                        cleanTestContent = cleanTestContent.replace(/^```typescript\n/, '');
+                    } else if (cleanTestContent.startsWith('```ts\n')) {
+                        cleanTestContent = cleanTestContent.replace(/^```ts\n/, '');
+                    } else if (cleanTestContent.startsWith('```javascript\n')) {
+                        cleanTestContent = cleanTestContent.replace(/^```javascript\n/, '');
+                    } else if (cleanTestContent.startsWith('```js\n')) {
+                        cleanTestContent = cleanTestContent.replace(/^```js\n/, '');
+                    }
+
+                    // Remove closing delimiter if it exists
+                    if (cleanTestContent.endsWith('\n```')) {
+                        cleanTestContent = cleanTestContent.replace(/\n```$/, '');
+                    } else if (cleanTestContent.endsWith('```')) {
+                        cleanTestContent = cleanTestContent.replace(/```$/, '');
+                    }
+
+                    console.log('🧹 Cleaned test content (removed markdown delimiters)');
+
                     // Create test file path
                     const dirName = path.dirname(file.filename);
                     const baseName = path.basename(file.filename, path.extname(file.filename));
@@ -120,8 +143,8 @@ async function run() {
                         fs.mkdirSync(testDir, { recursive: true });
                     }
 
-                    // Write test file
-                    fs.writeFileSync(testFilePath, testData.tests);
+                    // Write the cleaned test content to file
+                    fs.writeFileSync(testFilePath, cleanTestContent);
 
                     console.log(`✅ Generated tests saved to ${testFilePath}`);
 
