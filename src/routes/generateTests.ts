@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
+import { buildTestPrompt, systemPrompt } from '../utils/prompts';
 dotenv.config();
 
 const router = Router();
@@ -46,16 +47,7 @@ router.post('/generate-tests', async (req: Request, res: Response) => {
         }
 
         // Create prompt for OpenAI
-        const prompt = `Generate comprehensive unit tests for the following ${framework} code. 
-    The tests should cover edge cases, error scenarios, and normal functionality.
-    Return only the test code without explanations or markdown formatting.
-    
-    Code to test:
-    \`\`\`
-    ${code}
-    \`\`\`
-    
-    Generate ${framework} tests:`;
+        const prompt = buildTestPrompt(code, framework);
 
         // Call OpenAI API
         const completion = await openai.chat.completions.create({
@@ -63,7 +55,7 @@ router.post('/generate-tests', async (req: Request, res: Response) => {
             messages: [
                 {
                     role: "system",
-                    content: "You are a senior software engineer specializing in writing comprehensive unit tests. Generate clean, well-structured test code that follows best practices."
+                    content: systemPrompt
                 },
                 {
                     role: "user",
