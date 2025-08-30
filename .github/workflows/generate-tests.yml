@@ -25,19 +25,10 @@ jobs:
         with:
           node-version: '20'
       
-      - name: Install Action Dependencies
-        run: |
-          cd .github/actions/generate-tests
-          npm install
-          npm run build
-      
       - name: Generate Tests
         uses: ./.github/actions/generate-tests
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          backend-url: ${{ secrets.BACKEND_URL || 'http://localhost:3000' }}
         env:
-          # Optional: Set backend URL via environment variable
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BACKEND_URL: ${{ secrets.BACKEND_URL || 'http://localhost:3000' }}
       
       - name: Create PR Comment
