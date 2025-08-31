@@ -1,0 +1,8 @@
+x (A) Structured output - openai
+x (A) Test generated should not include comments
+(A) Add Necessary imports to test code generated
+(A) If test framework is not installed, install 
+(B) Don't generate duplicate tests
+(B) If test for <filename> exists, update <filename>.test.* if <filename> is updated
+(C) Run tests before making PR. tests are solutions, they shouldn't add more problem
+Important? Setup testing for repos without it
