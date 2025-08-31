@@ -9,9 +9,11 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(cors());
+// Regular JSON parsing
 app.use(express.json());
+
+// CORS middleware
+app.use(cors());
 
 // Routes
 app.use('/api', generateTestsRouter);
@@ -36,4 +38,5 @@ app.listen(PORT, () => {
     console.log(`🚀 Auto-tests backend server running on port ${PORT}`);
     console.log(`📝 Health check: http://localhost:${PORT}/health`);
     console.log(`🧪 Generate tests: http://localhost:${PORT}/api/generate-tests`);
+    console.log(`🔐 Security: API key required for /api/generate-tests`);
 });

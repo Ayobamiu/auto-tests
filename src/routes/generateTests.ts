@@ -4,10 +4,14 @@ import dotenv from 'dotenv';
 import { buildTestPrompt, systemPrompt } from '../utils/prompts';
 import { z } from 'zod';
 import { zodResponseFormat } from 'openai/helpers/zod';
+import { requireApiKey } from '../middleware/requireApiKey';
 
 dotenv.config();
 
 const router = Router();
+
+// Apply API key authentication to all routes in this router
+router.use(requireApiKey);
 
 // Initialize OpenAI client
 const openai = new OpenAI({

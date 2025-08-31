@@ -139,7 +139,8 @@ async function run() {
                 const testResponse = await fetch(`${backendUrl}/api/generate-tests`, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'x-api-key': process.env.AUTO_TEST_WEBHOOK_SECRET || ''
                     },
                     body: JSON.stringify({
                         code: content,
