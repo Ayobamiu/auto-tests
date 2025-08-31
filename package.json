@@ -10,19 +10,32 @@
     "test": "jest"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "openai": "^4.20.1",
+    "cors": "^2.8.5",
     "dotenv": "^16.3.1",
-    "cors": "^2.8.5"
+    "express": "^4.18.2",
+    "jest": "^30.1.1",
+    "openai": "^5.16.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@types/express": "^4.17.21",
+    "@babel/core": "^7.28.3",
+    "@babel/preset-env": "^7.28.3",
+    "@babel/preset-typescript": "^7.27.1",
     "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jest": "^30.0.0",
     "@types/node": "^20.10.0",
-    "typescript": "^5.3.2",
-    "ts-node-dev": "^2.0.0"
+    "babel-jest": "^30.1.1",
+    "ts-jest": "^29.4.1",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.3.2"
   },
-  "keywords": ["testing", "openai", "unit-tests", "code-generation"],
+  "keywords": [
+    "testing",
+    "openai",
+    "unit-tests",
+    "code-generation"
+  ],
   "author": "",
   "license": "MIT"
 }

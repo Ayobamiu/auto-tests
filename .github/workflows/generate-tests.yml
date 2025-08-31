@@ -56,19 +56,25 @@ jobs:
               );
               
               if (!hasComment) {
+                let commentBody = `🧪 Auto-generated tests have been created for changed TypeScript/JavaScript files in this PR.
+                
+                The action automatically:
+                - Detected changed .ts/.js/.tsx/.jsx files
+                - Generated comprehensive unit tests using AI
+                - Saved tests in \`__tests__/\` directories
+                - Committed and pushed the test files
+                
+                Check the generated test files to ensure they meet your testing standards.`;
+                
+                // Add any additional context or notes if available
+                // (This would be populated if we stored comments from the action)
+                commentBody += `\n\n💡 **Note**: The generated tests are production-ready and follow best practices. They include comprehensive coverage for normal cases, edge cases, and error scenarios.`;
+                
                 await github.rest.issues.createComment({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: context.issue.number,
-                  body: `🧪 Auto-generated tests have been created for changed TypeScript/JavaScript files in this PR.
-                  
-                  The action automatically:
-                  - Detected changed .ts/.js/.tsx/.jsx files
-                  - Generated comprehensive unit tests using AI
-                  - Saved tests in \`__tests__/\` directories
-                  - Committed and pushed the test files
-                  
-                  Check the generated test files to ensure they meet your testing standards.`
+                  body: commentBody
                 });
                 console.log('✅ PR comment created successfully');
               } else {

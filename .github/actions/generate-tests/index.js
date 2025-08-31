@@ -87,6 +87,12 @@ async function run() {
                     framework = 'jest';
                 }
 
+                // Create test file path
+                const dirName = path.dirname(file.filename);
+                const baseName = path.basename(file.filename, path.extname(file.filename));
+                const testDir = path.join(dirName, '__tests__');
+                const testFilePath = path.join(testDir, `${baseName}.test.ts`);
+
                 // Send to backend for test generation
                 console.log(`🤖 Generating ${framework} tests for ${file.filename}...`);
 
@@ -97,7 +103,9 @@ async function run() {
                     },
                     body: JSON.stringify({
                         code: content,
-                        framework: framework
+                        framework: framework,
+                        filePath: file.filename,
+                        testFilePath: testFilePath
                     })
                 });
 
@@ -109,41 +117,29 @@ async function run() {
                 const testData = await testResponse.json();
 
                 if (testData && testData.tests) {
-                    // Clean the test content by removing markdown delimiters
+                    // With structured outputs, the tests field should already be clean
                     let cleanTestContent = testData.tests;
 
-                    // Remove markdown code block delimiters if they exist
-                    if (cleanTestContent.startsWith('```typescript\n')) {
-                        cleanTestContent = cleanTestContent.replace(/^```typescript\n/, '');
-                    } else if (cleanTestContent.startsWith('```ts\n')) {
-                        cleanTestContent = cleanTestContent.replace(/^```ts\n/, '');
-                    } else if (cleanTestContent.startsWith('```javascript\n')) {
-                        cleanTestContent = cleanTestContent.replace(/^```javascript\n/, '');
-                    } else if (cleanTestContent.startsWith('```js\n')) {
-                        cleanTestContent = cleanTestContent.replace(/^```js\n/, '');
+                    // Log metadata for debugging
+                    if (testData.metadata) {
+                        console.log('📊 Test Coverage:', testData.metadata.coverage);
+                        console.log('💡 Assumptions:', testData.metadata.assumptions);
+                        console.log('🔧 Recommendations:', testData.metadata.recommendations);
+                        console.log('⭐ Test Quality:', testData.metadata.testQuality);
+                        console.log('⏱️ Estimated Time:', testData.metadata.timeToWrite);
                     }
 
-                    // Remove closing delimiter if it exists
-                    if (cleanTestContent.endsWith('\n```')) {
-                        cleanTestContent = cleanTestContent.replace(/\n```$/, '');
-                    } else if (cleanTestContent.endsWith('```')) {
-                        cleanTestContent = cleanTestContent.replace(/```$/, '');
+                    // Store comments for later use in PR
+                    if (testData.comments) {
+                        console.log('💬 Test Comments:', testData.comments);
                     }
-
-                    console.log('🧹 Cleaned test content (removed markdown delimiters)');
-
-                    // Create test file path
-                    const dirName = path.dirname(file.filename);
-                    const baseName = path.basename(file.filename, path.extname(file.filename));
-                    const testDir = path.join(dirName, '__tests__');
-                    const testFilePath = path.join(testDir, `${baseName}.test.ts`);
 
                     // Ensure test directory exists
                     if (!fs.existsSync(testDir)) {
                         fs.mkdirSync(testDir, { recursive: true });
                     }
 
-                    // Write the cleaned test content to file
+                    // Write the clean test content to file
                     fs.writeFileSync(testFilePath, cleanTestContent);
 
                     console.log(`✅ Generated tests saved to ${testFilePath}`);
