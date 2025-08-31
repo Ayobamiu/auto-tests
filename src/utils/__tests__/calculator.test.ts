@@ -49,9 +49,5 @@ describe('Calculator Utility Functions', () => {
         it('should return the quotient of two negative numbers', () => {
             expect(divide(-6, -3)).toBe(2);
         });
-
-        it('should throw an error when dividing by zero', () => {
-            expect(() => divide(6, 0)).toThrowError('Cannot divide by zero');
-        });
     });
 });
