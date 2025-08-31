@@ -93,8 +93,20 @@ async function run() {
                 const testDir = path.join(dirName, '__tests__');
                 const testFilePath = path.join(testDir, `${baseName}.test.ts`);
 
+                // Check if tests already exist
+                let existingTests = null;
+                let changeType = 'new';
+
+                if (fs.existsSync(testFilePath)) {
+                    existingTests = fs.readFileSync(testFilePath, 'utf-8');
+                    changeType = 'update';
+                    console.log(`📝 Found existing tests for ${file.filename}, will update them`);
+                } else {
+                    console.log(`🆕 No existing tests found for ${file.filename}, will create new ones`);
+                }
+
                 // Send to backend for test generation
-                console.log(`🤖 Generating ${framework} tests for ${file.filename}...`);
+                console.log(`🤖 Generating ${framework} tests for ${file.filename} (${changeType})...`);
 
                 const testResponse = await fetch(`${backendUrl}/api/generate-tests`, {
                     method: 'POST',
@@ -105,7 +117,9 @@ async function run() {
                         code: content,
                         framework: framework,
                         filePath: file.filename,
-                        testFilePath: testFilePath
+                        testFilePath: testFilePath,
+                        changeType: changeType,
+                        existingTests: existingTests
                     })
                 });
 

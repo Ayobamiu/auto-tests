@@ -78,14 +78,17 @@ router.post('/generate-tests', async (req: Request, res: Response) => {
             });
         }
 
+        // Set default change type if not provided
+        const changeType = req.body.changeType || 'new';
+
         if (!process.env.OPENAI_API_KEY) {
             return res.status(500).json({
                 error: 'OpenAI API key not configured'
             });
         }
 
-        // Create prompt for OpenAI with file path context
-        const prompt = buildTestPrompt(code, framework, filePath, testFilePath);
+        // Create prompt for OpenAI with enhanced context
+        const prompt = buildTestPrompt(code, framework, filePath, testFilePath, changeType, req.body.previousCode, req.body.existingTests);
 
         // Call OpenAI API with structured output using the parse method
         const completion = await openai.chat.completions.parse({
@@ -93,7 +96,7 @@ router.post('/generate-tests', async (req: Request, res: Response) => {
             messages: [
                 {
                     role: "system",
-                    content: systemPrompt
+                    content: systemPrompt(framework)
                 },
                 {
                     role: "user",
