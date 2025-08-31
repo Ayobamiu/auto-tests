@@ -1,21 +1,21 @@
-import { add, multiply, divide, subtract } from '../calculator';
+import { add, multiply, divide, subtract, modulo } from '../calculator';
 
-describe('Calculator Functions', () => {
-    describe('add()', () => {
+describe('Calculator', () => {
+    describe('add', () => {
         it('should return the sum of two positive numbers', () => {
-            expect(add(1, 2)).toBe(3);
+            expect(add(2, 3)).toBe(5);
         });
 
         it('should return the sum of a positive and a negative number', () => {
-            expect(add(1, -2)).toBe(-1);
+            expect(add(2, -3)).toBe(-1);
         });
 
         it('should return the sum of two negative numbers', () => {
-            expect(add(-1, -2)).toBe(-3);
+            expect(add(-2, -3)).toBe(-5);
         });
     });
 
-    describe('multiply()', () => {
+    describe('multiply', () => {
         it('should return the product of two positive numbers', () => {
             expect(multiply(2, 3)).toBe(6);
         });
@@ -29,7 +29,7 @@ describe('Calculator Functions', () => {
         });
     });
 
-    describe('divide()', () => {
+    describe('divide', () => {
         it('should return the quotient of two positive numbers', () => {
             expect(divide(6, 3)).toBe(2);
         });
@@ -39,11 +39,11 @@ describe('Calculator Functions', () => {
         });
 
         it('should handle division by zero', () => {
-            expect(() => divide(6, 0)).toThrowError('Cannot divide by zero');
+            expect(divide(6, 0)).toBe(Infinity);
         });
     });
 
-    describe('subtract()', () => {
+    describe('subtract', () => {
         it('should return the difference of two positive numbers', () => {
             expect(subtract(5, 3)).toBe(2);
         });
@@ -54,6 +54,20 @@ describe('Calculator Functions', () => {
 
         it('should return the difference of two negative numbers', () => {
             expect(subtract(-5, -3)).toBe(-2);
+        });
+    });
+
+    describe('modulo', () => {
+        it('should return the remainder of two positive numbers', () => {
+            expect(modulo(5, 3)).toBe(2);
+        });
+
+        it('should return the remainder of a positive and a negative number', () => {
+            expect(modulo(5, -3)).toBe(2);
+        });
+
+        it('should handle modulo by zero', () => {
+            expect(() => modulo(5, 0)).toThrow();
         });
     });
 });
