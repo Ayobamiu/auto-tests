@@ -52,15 +52,43 @@ async function run() {
         }
         const files = await filesResponse.json();
 
-        // Filter for TypeScript/JavaScript files
+        // Filter for TypeScript/JavaScript files (exclude test files)
         const tsJsFiles = files.filter(file =>
-            file.filename.endsWith('.ts') ||
-            file.filename.endsWith('.js') ||
-            file.filename.endsWith('.tsx') ||
-            file.filename.endsWith('.jsx')
+            (file.filename.endsWith('.ts') ||
+                file.filename.endsWith('.js') ||
+                file.filename.endsWith('.tsx') ||
+                file.filename.endsWith('.jsx')) &&
+            !file.filename.includes('__tests__') &&  // Exclude test directories
+            !file.filename.endsWith('.test.ts') &&   // Exclude test files
+            !file.filename.endsWith('.test.js') &&   // Exclude test files
+            !file.filename.endsWith('.spec.ts') &&   // Exclude spec files
+            !file.filename.endsWith('.spec.js')     // Exclude spec files
         );
 
-        console.log(`🔍 Found ${tsJsFiles.length} TypeScript/JavaScript files to process`);
+        // Log what was filtered out
+        const excludedFiles = files.filter(file =>
+            (file.filename.endsWith('.ts') ||
+                file.filename.endsWith('.js') ||
+                file.filename.endsWith('.tsx') ||
+                file.filename.endsWith('.jsx')) &&
+            (file.filename.includes('__tests__') ||
+                file.filename.endsWith('.test.ts') ||
+                file.filename.endsWith('.test.js') ||
+                file.filename.endsWith('.spec.ts') ||
+                file.filename.endsWith('.spec.js'))
+        );
+
+        if (excludedFiles.length > 0) {
+            console.log(`🚫 Excluded ${excludedFiles.length} test files from processing:`);
+            excludedFiles.forEach(file => console.log(`   - ${file.filename}`));
+        }
+
+        console.log(`🔍 Found ${tsJsFiles.length} TypeScript/JavaScript source files to process (excluded test files)`);
+
+        if (tsJsFiles.length === 0) {
+            console.log('ℹ️ No source files found that need tests generated');
+            return;
+        }
 
         // Process each file
         for (const file of tsJsFiles) {
