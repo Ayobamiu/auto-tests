@@ -1,12 +1,23 @@
 import { Request, Response } from 'express';
 import { createHmac } from 'crypto';
 import { ChangeType } from '../types/types';
+import { buildTestPrompt, systemPrompt } from '../utils/prompts';
+import { zodResponseFormat } from 'openai/helpers/zod';
+import { TestGenerationSchema } from '../types/types';
 
 // GitHub App configuration
 const GITHUB_APP_ID = process.env.GITHUB_APP_ID;
 const GITHUB_PRIVATE_KEY = process.env.GITHUB_PRIVATE_KEY;
 const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET;
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3000';
+
+// Initialize OpenAI client for direct test generation
+async function getOpenAIClient() {
+    const { default: OpenAI } = await import('openai');
+    return new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+    });
+}
 
 // Initialize Octokit with GitHub App authentication
 async function createOctokit(installationId: number) {
@@ -131,6 +142,58 @@ function shouldProcessFile(filePath: string): boolean {
     return supportedExtensions.some(ext => filePath.endsWith(ext)) && !isTestFile;
 }
 
+// Generate tests directly using OpenAI
+async function generateTestsDirectly(
+    code: string,
+    framework: string,
+    filePath: string,
+    testFilePath: string,
+    changeType: ChangeType,
+    previousCode?: string,
+    existingTests?: string
+): Promise<{ tests: string; metadata: any }> {
+    const openai = await getOpenAIClient();
+
+    if (!process.env.OPENAI_API_KEY) {
+        throw new Error('OpenAI API key not configured');
+    }
+
+    // Create prompt for OpenAI with enhanced context
+    const prompt = buildTestPrompt(code, framework, filePath, testFilePath, changeType, previousCode, existingTests);
+
+    // Call OpenAI API with structured output using the parse method
+    const completion = await openai.chat.completions.parse({
+        model: "gpt-4o",
+        messages: [
+            {
+                role: "system",
+                content: systemPrompt(framework)
+            },
+            {
+                role: "user",
+                content: prompt
+            }
+        ],
+        response_format: zodResponseFormat(TestGenerationSchema, 'test_generation'),
+        max_tokens: 3000,
+        temperature: 0.3,
+    });
+
+    const message = completion.choices[0]?.message;
+
+    if (!message?.parsed) {
+        throw new Error('Failed to generate tests from OpenAI');
+    }
+
+    const parsedOutput = message.parsed;
+    const { tests, ...metadata } = parsedOutput;
+
+    return {
+        tests: tests,
+        metadata: metadata
+    };
+}
+
 // Process a single file
 async function processFile(
     octokit: any,
@@ -167,31 +230,16 @@ async function processFile(
         } catch (error) {
             console.log(`⚠️ Could not get previous version for ${filePath}, proceeding without it`);
         }
-        // Call your existing API to generate tests
-        const response = await fetch(`${BACKEND_URL}/api/generate-tests`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': process.env.AUTO_TEST_WEBHOOK_SECRET || '',
-            },
-            body: JSON.stringify({
-                code: content,
-                framework: 'jest',
-                filePath: filePath,
-                testFilePath: testFilePath,
-                changeType: changeType,
-                previousCode: previousCode,
-                existingTests: existingTests,
-            }),
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`❌ API call failed for ${filePath}:`, errorText);
-            return false;
-        }
-
-        const result = await response.json() as { tests: string; metadata: any };
+        // Generate tests directly using OpenAI
+        const result = await generateTestsDirectly(
+            content,
+            'jest',
+            filePath,
+            testFilePath,
+            changeType,
+            previousCode,
+            existingTests || undefined
+        );
 
         // Create or update test file
         const commitMessage = `${changeType === 'update' ? 'Update' : 'Add'} tests for ${filePath}`;
