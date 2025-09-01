@@ -1,5 +1,8 @@
 import { Request, Response } from 'express';
 import { createHmac } from 'crypto';
+import { Octokit } from '@octokit/rest';
+import { createAppAuth } from '@octokit/auth-app';
+import OpenAI from 'openai';
 import { ChangeType } from '../types/types';
 import { buildTestPrompt, systemPrompt } from '../utils/prompts';
 import { zodResponseFormat } from 'openai/helpers/zod';
@@ -12,18 +15,14 @@ const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET;
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3000';
 
 // Initialize OpenAI client for direct test generation
-async function getOpenAIClient() {
-    const { default: OpenAI } = await import('openai');
+function getOpenAIClient() {
     return new OpenAI({
         apiKey: process.env.OPENAI_API_KEY,
     });
 }
 
 // Initialize Octokit with GitHub App authentication
-async function createOctokit(installationId: number) {
-    const { Octokit } = await import('@octokit/rest');
-    const { createAppAuth } = await import('@octokit/auth-app');
-
+function createOctokit(installationId: number) {
     const auth = createAppAuth({
         appId: GITHUB_APP_ID!,
         privateKey: GITHUB_PRIVATE_KEY!,
@@ -162,7 +161,7 @@ async function generateTestsDirectly(
     previousCode?: string,
     existingTests?: string
 ): Promise<{ tests: string; metadata: any }> {
-    const openai = await getOpenAIClient();
+    const openai = getOpenAIClient();
 
     if (!process.env.OPENAI_API_KEY) {
         throw new Error('OpenAI API key not configured');
@@ -316,7 +315,7 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
         }
 
         // Create Octokit instance
-        const octokit = await createOctokit(installationId);
+        const octokit = createOctokit(installationId);
 
         const owner = repository.owner.login;
         const repo = repository.name;
