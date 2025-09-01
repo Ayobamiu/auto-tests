@@ -1,3 +1,5 @@
+import { ChangeType } from "../types/types";
+
 export function systemPrompt(framework: string) {
   return `
 You are a senior software engineer who specializes in writing high-quality unit tests. You NEVER change the original code’s behavior or structure. You ONLY write tests for code that is NEW or MODIFIED based on context.
@@ -18,7 +20,7 @@ You are a senior software engineer who specializes in writing high-quality unit 
 `;
 }
 
-function getContextSection(changeType: 'new' | 'update' | 'regenerate' = 'new', filePath: string, testFilePath: string, previousCode?: string, existingTests?: string) {
+function getContextSection(changeType: ChangeType = 'new', filePath: string, testFilePath: string, previousCode?: string, existingTests?: string): string {
   let contextSection = '';
 
   if (changeType === 'update' && existingTests) {
@@ -62,6 +64,8 @@ function getContextSection(changeType: 'new' | 'update' | 'regenerate' = 'new', 
     - Provide reasoning for your decisions
     `;
   }
+
+  return contextSection;
 }
 
 export function buildTestPrompt(
@@ -69,7 +73,7 @@ export function buildTestPrompt(
   framework: string,
   filePath: string,
   testFilePath: string,
-  changeType: 'new' | 'update' | 'regenerate' = 'new',
+  changeType: ChangeType = 'new',
   previousCode?: string,
   existingTests?: string
 ) {

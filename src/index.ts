@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { generateTestsRouter } from './routes/generateTests';
+import { githubWebhookRouter } from './routes/githubWebhook';
 
 // Load environment variables
 dotenv.config();
@@ -17,6 +18,7 @@ app.use(cors());
 
 // Routes
 app.use('/api', generateTestsRouter);
+app.use('/api', githubWebhookRouter);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

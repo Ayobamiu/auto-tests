@@ -28,6 +28,7 @@ cp env.example .env
 ```
 
 Edit `.env` and add your OpenAI API key:
+
 ```
 OPENAI_API_KEY=your_actual_api_key_here
 ```
@@ -52,6 +53,7 @@ The server will start on port 3000 (or the port specified in your `.env` file).
 Generates unit tests for the provided code using the specified testing framework.
 
 **Request Body:**
+
 ```json
 {
   "code": "function add(a, b) { return a + b; }",
@@ -60,6 +62,7 @@ Generates unit tests for the provided code using the specified testing framework
 ```
 
 **Response:**
+
 ```json
 {
   "tests": "describe('add function', () => {\n  test('should add two positive numbers', () => {\n    expect(add(2, 3)).toBe(5);\n  });\n});"
@@ -67,6 +70,7 @@ Generates unit tests for the provided code using the specified testing framework
 ```
 
 **Error Responses:**
+
 - `400` - Missing or invalid parameters
 - `401` - Invalid OpenAI API key
 - `429` - Rate limit exceeded
@@ -79,6 +83,7 @@ Health check endpoint to verify the server is running.
 ## Supported Testing Frameworks
 
 The backend can generate tests for any framework you specify. Common examples:
+
 - Jest (JavaScript/TypeScript)
 - Mocha (JavaScript)
 - PyTest (Python)
