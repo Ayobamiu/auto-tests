@@ -1,6 +1,5 @@
-import z from "zod";
+import { z } from 'zod';
 
-// Change type enum
 export type ChangeType = 'new' | 'update' | 'regenerate';
 
 // Request body interface

@@ -1,8 +1,5 @@
 import { Request, Response } from 'express';
 import { createHmac } from 'crypto';
-import { Octokit } from '@octokit/rest';
-import { createAppAuth } from '@octokit/auth-app';
-import { Webhooks, createNodeMiddleware } from '@octokit/webhooks';
 import { ChangeType } from '../types/types';
 
 // GitHub App configuration
@@ -12,7 +9,10 @@ const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET;
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3000';
 
 // Initialize Octokit with GitHub App authentication
-function createOctokit(installationId: number): Octokit {
+async function createOctokit(installationId: number) {
+    const { Octokit } = await import('@octokit/rest');
+    const { createAppAuth } = await import('@octokit/auth-app');
+
     const auth = createAppAuth({
         appId: GITHUB_APP_ID!,
         privateKey: GITHUB_PRIVATE_KEY!,
@@ -37,7 +37,7 @@ function verifyWebhookSignature(payload: string, signature: string): boolean {
 }
 
 // Get file content from GitHub
-async function getFileContent(octokit: Octokit, owner: string, repo: string, path: string, ref: string): Promise<string | null> {
+async function getFileContent(octokit: any, owner: string, repo: string, path: string, ref: string): Promise<string | null> {
     try {
         const response = await octokit.repos.getContent({
             owner,
@@ -63,7 +63,7 @@ async function getFileContent(octokit: Octokit, owner: string, repo: string, pat
 
 // Create or update test file
 async function createOrUpdateTestFile(
-    octokit: Octokit,
+    octokit: any,
     owner: string,
     repo: string,
     filePath: string,
@@ -133,7 +133,7 @@ function shouldProcessFile(filePath: string): boolean {
 
 // Process a single file
 async function processFile(
-    octokit: Octokit,
+    octokit: any,
     owner: string,
     repo: string,
     filePath: string,
@@ -258,7 +258,7 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
         }
 
         // Create Octokit instance
-        const octokit = createOctokit(installationId);
+        const octokit = await createOctokit(installationId);
 
         const owner = repository.owner.login;
         const repo = repository.name;
