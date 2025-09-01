@@ -2,6 +2,7 @@
   "name": "auto-tests-backend",
   "version": "1.0.0",
   "description": "Backend for auto-tests tool that generates unit tests using OpenAI",
+  "type": "commonjs",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
@@ -10,9 +11,8 @@
     "test": "jest"
   },
   "dependencies": {
-    "@octokit/auth-app": "^6.0.0",
-    "@octokit/rest": "^21.0.2",
-    "@octokit/webhooks": "^13.0.0",
+    "@octokit/auth-app": "^4.0.0",
+    "@octokit/rest": "^18.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
