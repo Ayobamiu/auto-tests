@@ -40,9 +40,19 @@ function verifyWebhookSignature(payload: string, signature: string): boolean {
         return true;
     }
 
+    if (!signature) {
+        console.error('No signature provided in webhook request');
+        return false;
+    }
+
     const expectedSignature = `sha256=${createHmac('sha256', GITHUB_WEBHOOK_SECRET)
         .update(payload)
         .digest('hex')}`;
+
+    console.log(`🔍 Verifying webhook signature:`);
+    console.log(`   Expected: ${expectedSignature}`);
+    console.log(`   Received: ${signature}`);
+    console.log(`   Match: ${signature === expectedSignature}`);
 
     return signature === expectedSignature;
 }

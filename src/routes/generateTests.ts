@@ -10,9 +10,6 @@ dotenv.config();
 
 const router = Router();
 
-// Apply API key authentication to all routes in this router
-router.use(requireApiKey);
-
 // Initialize OpenAI client
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
@@ -20,7 +17,7 @@ const openai = new OpenAI({
 
 
 // POST /api/generate-tests
-router.post('/generate-tests', async (req: Request, res: Response) => {
+router.post('/generate-tests', requireApiKey, async (req: Request, res: Response) => {
     try {
         const { code, framework, filePath, testFilePath, changeType, previousCode, existingTests }: GenerateTestsRequest = req.body;
 
