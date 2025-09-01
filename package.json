@@ -2,6 +2,7 @@
   "name": "auto-tests-backend",
   "version": "1.0.0",
   "description": "Backend for auto-tests tool that generates unit tests using OpenAI",
+  "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
