@@ -9,7 +9,7 @@ import { zodResponseFormat } from 'openai/helpers/zod';
 import { TestGenerationSchema } from '../types/types';
 
 // GitHub App configuration
-const GITHUB_APP_ID = process.env.GITHUB_APP_ID;
+const GITHUB_APP_ID = process.env.GITHUB_APP_ID ? parseInt(process.env.GITHUB_APP_ID, 10) : undefined;
 const GITHUB_PRIVATE_KEY = process.env.GITHUB_PRIVATE_KEY;
 const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET;
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3000';
@@ -23,9 +23,24 @@ function getOpenAIClient() {
 
 // Initialize Octokit with GitHub App authentication
 function createOctokit(installationId: number) {
+    // Debug environment variables
+    console.log('🔍 Environment variables check:');
+    console.log(`  GITHUB_APP_ID: ${GITHUB_APP_ID} (type: ${typeof GITHUB_APP_ID})`);
+    console.log(`  GITHUB_PRIVATE_KEY: ${GITHUB_PRIVATE_KEY ? 'SET' : 'NOT SET'} (length: ${GITHUB_PRIVATE_KEY?.length || 0})`);
+    console.log(`  GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET ? 'SET' : 'NOT SET'}`);
+    console.log(`  OPENAI_API_KEY: ${process.env.OPENAI_API_KEY ? 'SET' : 'NOT SET'}`);
+
+    if (!GITHUB_APP_ID) {
+        throw new Error('GITHUB_APP_ID environment variable is not set or invalid');
+    }
+
+    if (!GITHUB_PRIVATE_KEY) {
+        throw new Error('GITHUB_PRIVATE_KEY environment variable is not set');
+    }
+
     const auth = createAppAuth({
-        appId: GITHUB_APP_ID!,
-        privateKey: GITHUB_PRIVATE_KEY!,
+        appId: GITHUB_APP_ID,
+        privateKey: GITHUB_PRIVATE_KEY,
         installationId: installationId,
     });
 
