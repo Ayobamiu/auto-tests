@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
 import { createHmac } from 'crypto';
 import { Octokit } from '@octokit/rest';
-import { createAppAuth } from '@octokit/auth-app';
 import OpenAI from 'openai';
 import { ChangeType } from '../types/types';
 import { buildTestPrompt, systemPrompt } from '../utils/prompts';
@@ -9,10 +8,10 @@ import { zodResponseFormat } from 'openai/helpers/zod';
 import { TestGenerationSchema } from '../types/types';
 
 // GitHub App configuration
-const GITHUB_APP_ID = process.env.GITHUB_APP_ID ? parseInt(process.env.GITHUB_APP_ID, 10) : undefined;
-const GITHUB_PRIVATE_KEY = process.env.GITHUB_PRIVATE_KEY;
 const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET;
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3000';
+// Bot signature to identify our app's commits
+const BOT_SIGNATURE = process.env.BOT_SIGNATURE || 'auto-tests-bot';
+const SKIP_KEYWORD = process.env.SKIP_KEYWORD || '@iterate skip';
 
 // Initialize OpenAI client for direct test generation
 function getOpenAIClient() {
@@ -21,30 +20,18 @@ function getOpenAIClient() {
     });
 }
 
-// Initialize Octokit with GitHub App authentication
-function createOctokit(installationId: number) {
-    // Debug environment variables
-    console.log('🔍 Environment variables check:');
-    console.log(`  GITHUB_APP_ID: ${GITHUB_APP_ID} (type: ${typeof GITHUB_APP_ID})`);
-    console.log(`  GITHUB_PRIVATE_KEY: ${GITHUB_PRIVATE_KEY ? 'SET' : 'NOT SET'} (length: ${GITHUB_PRIVATE_KEY?.length || 0})`);
-    console.log(`  GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET ? 'SET' : 'NOT SET'}`);
-    console.log(`  OPENAI_API_KEY: ${process.env.OPENAI_API_KEY ? 'SET' : 'NOT SET'}`);
+function createOctokit() {
+    const githubToken = process.env.GITHUB_TOKEN;
 
-    if (!GITHUB_APP_ID) {
-        throw new Error('GITHUB_APP_ID environment variable is not set or invalid');
+    if (!githubToken) {
+        console.error('❌ GITHUB_TOKEN not set. Please add a Personal Access Token to Railway environment variables.');
+        throw new Error('GITHUB_TOKEN environment variable is required');
     }
 
-    if (!GITHUB_PRIVATE_KEY) {
-        throw new Error('GITHUB_PRIVATE_KEY environment variable is not set');
-    }
 
-    const auth = createAppAuth({
-        appId: GITHUB_APP_ID,
-        privateKey: GITHUB_PRIVATE_KEY,
-        installationId: installationId,
+    return new Octokit({
+        auth: githubToken,
     });
-
-    return new Octokit({ authStrategy: auth });
 }
 
 // Verify webhook signature
@@ -63,10 +50,6 @@ function verifyWebhookSignature(payload: string, signature: string): boolean {
         .update(payload)
         .digest('hex')}`;
 
-    console.log(`🔍 Verifying webhook signature:`);
-    console.log(`   Expected: ${expectedSignature}`);
-    console.log(`   Received: ${signature}`);
-    console.log(`   Match: ${signature === expectedSignature}`);
 
     return signature === expectedSignature;
 }
@@ -225,8 +208,7 @@ async function processFile(
     repo: string,
     filePath: string,
     branch: string,
-    baseBranch: string,
-    installationId: number
+    baseBranch: string
 ): Promise<boolean> {
     try {
         console.log(`🔍 Processing file: ${filePath}`);
@@ -266,7 +248,7 @@ async function processFile(
         );
 
         // Create or update test file
-        const commitMessage = `${changeType === 'update' ? 'Update' : 'Add'} tests for ${filePath}`;
+        const commitMessage = `${changeType === 'update' ? 'Update' : 'Add'} tests for ${filePath} [${BOT_SIGNATURE}]`;
         const success = await createOrUpdateTestFile(
             octokit,
             owner,
@@ -303,7 +285,7 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
         }
 
         const event = req.headers['x-github-event'] as string;
-
+        console.log({ event }, '--event--');
         if (event !== 'pull_request') {
             console.log(`ℹ️ Ignoring non-pull_request event: ${event}`);
             res.status(200).json({ message: 'Event ignored' });
@@ -312,7 +294,6 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
 
         const { action, pull_request, repository, installation } = req.body;
 
-        // Only process on PR open, synchronize, or reopen
         if (!['opened', 'synchronize', 'reopened'].includes(action)) {
             console.log(`ℹ️ Ignoring PR action: ${action}`);
             res.status(200).json({ message: 'Action ignored' });
@@ -321,16 +302,73 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
 
         console.log(`🚀 Processing PR #${pull_request.number}: ${pull_request.title}`);
 
-        // Get installation ID for authentication
-        const installationId = installation?.id;
-        if (!installationId) {
-            console.error('❌ No installation ID found');
-            res.status(400).json({ error: 'No installation ID' });
+        // Create Octokit instance
+        const octokit = createOctokit();
+
+        // Get PR title and body (always available)
+        const prTitle = pull_request.title || '';
+        const prBody = pull_request.body || '';
+        const combinedPRText = `${prTitle} ${prBody}`;
+
+        // Check if there are multiple commits
+        const totalCommits = pull_request.commits;
+        console.log(`📊 PR has ${totalCommits} commit(s)`);
+
+        let shouldSkip = false;
+        let skipReason = '';
+
+        if (totalCommits === 1) {
+            // Single commit - check PR title/body only
+            console.log(`🔍 Single commit PR - checking PR title/body only`);
+
+            if (combinedPRText.includes(BOT_SIGNATURE)) {
+                shouldSkip = true;
+                skipReason = 'our bot commit in PR title/body';
+            } else if (combinedPRText.includes(SKIP_KEYWORD)) {
+                shouldSkip = true;
+                skipReason = '@iterate skip in PR title/body';
+            }
+        } else {
+            // Multiple commits - fetch latest commit message
+            console.log(`🔍 Multiple commits PR - fetching latest commit message`);
+
+            try {
+                const commitSha = pull_request.head.sha;
+                const commitResponse = await octokit.repos.getCommit({
+                    owner: repository.owner.login,
+                    repo: repository.name,
+                    ref: commitSha
+                });
+                const commitMessage = commitResponse.data.commit.message;
+                const combinedText = `${combinedPRText} ${commitMessage}`;
+                console.log(`📝 Latest commit message: ${commitMessage}`);
+
+                if (combinedText.includes(BOT_SIGNATURE)) {
+                    shouldSkip = true;
+                    skipReason = 'our bot commit in PR or commit message';
+                } else if (combinedText.includes(SKIP_KEYWORD)) {
+                    shouldSkip = true;
+                    skipReason = '@iterate skip in PR or commit message';
+                }
+            } catch (error) {
+                console.error(`❌ Error fetching commit message:`, error);
+                // Fallback to checking PR title/body only
+                if (combinedPRText.includes(BOT_SIGNATURE)) {
+                    shouldSkip = true;
+                    skipReason = 'our bot commit in PR title/body (fallback)';
+                } else if (combinedPRText.includes(SKIP_KEYWORD)) {
+                    shouldSkip = true;
+                    skipReason = '@iterate skip in PR title/body (fallback)';
+                }
+            }
+        }
+
+        if (shouldSkip) {
+            console.log(`⏭️ Skipping PR due to ${skipReason}`);
+            res.status(200).json({ message: `Skipping due to ${skipReason}` });
             return;
         }
 
-        // Create Octokit instance
-        const octokit = createOctokit(installationId);
 
         const owner = repository.owner.login;
         const repo = repository.name;
@@ -345,8 +383,8 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
         });
 
         const changedFiles = filesResponse.data
-            .filter(file => file.status !== 'removed')
-            .map(file => file.filename)
+            .filter((file: any) => file.status !== 'removed')
+            .map((file: any) => file.filename)
             .filter(shouldProcessFile);
 
         console.log(`📁 Found ${changedFiles.length} files to process:`, changedFiles);
@@ -359,7 +397,7 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
 
         // Process each file
         const results = await Promise.all(
-            changedFiles.map(file => processFile(octokit, owner, repo, file, branch, baseBranch, installationId))
+            changedFiles.map((file: any) => processFile(octokit, owner, repo, file, branch, baseBranch))
         );
 
         const successCount = results.filter(Boolean).length;
