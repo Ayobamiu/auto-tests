@@ -1,277 +1,15 @@
 import { Request, Response } from 'express';
-import { createHmac } from 'crypto';
-import { Octokit } from '@octokit/rest';
-import OpenAI from 'openai';
-import { ChangeType } from '../types/types';
-import { buildTestPrompt, systemPrompt } from '../utils/prompts';
-import { zodResponseFormat } from 'openai/helpers/zod';
-import { TestGenerationSchema } from '../types/types';
+import { createOctokit, getChangedFilesWithDiffs, preFetchFileContents } from './githubOperations';
+import { processFile } from './fileProcessor';
+import { parseSkipKeyword } from './skipKeywordParser';
+import { verifyWebhookSignature } from './webhookVerification';
 
-// GitHub App configuration
-const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET;
 // Bot signature to identify our app's commits
 const BOT_SIGNATURE = process.env.BOT_SIGNATURE || 'auto-tests-bot';
-const SKIP_KEYWORD = process.env.SKIP_KEYWORD || '@iterate skip';
 
-// Initialize OpenAI client for direct test generation
-function getOpenAIClient() {
-    return new OpenAI({
-        apiKey: process.env.OPENAI_API_KEY,
-    });
-}
-
-function createOctokit() {
-    const githubToken = process.env.GITHUB_TOKEN;
-
-    if (!githubToken) {
-        console.error('❌ GITHUB_TOKEN not set. Please add a Personal Access Token to Railway environment variables.');
-        throw new Error('GITHUB_TOKEN environment variable is required');
-    }
-
-
-    return new Octokit({
-        auth: githubToken,
-    });
-}
-
-// Verify webhook signature
-function verifyWebhookSignature(payload: string, signature: string): boolean {
-    if (!GITHUB_WEBHOOK_SECRET) {
-        console.warn('No webhook secret configured, skipping signature verification');
-        return true;
-    }
-
-    if (!signature) {
-        console.error('No signature provided in webhook request');
-        return false;
-    }
-
-    const expectedSignature = `sha256=${createHmac('sha256', GITHUB_WEBHOOK_SECRET)
-        .update(payload)
-        .digest('hex')}`;
-
-
-    return signature === expectedSignature;
-}
-
-// Get file content from GitHub
-async function getFileContent(octokit: any, owner: string, repo: string, path: string, ref: string): Promise<string | null> {
-    try {
-        const response = await octokit.repos.getContent({
-            owner,
-            repo,
-            path,
-            ref,
-        });
-
-        if (Array.isArray(response.data)) {
-            return null; // Directory
-        }
-
-        if (response.data.type === 'file' && 'content' in response.data) {
-            return Buffer.from(response.data.content, 'base64').toString('utf-8');
-        }
-
-        return null;
-    } catch (error) {
-        console.error(`Error getting file content for ${path}:`, error);
-        return null;
-    }
-}
-
-// Create or update test file
-async function createOrUpdateTestFile(
-    octokit: any,
-    owner: string,
-    repo: string,
-    filePath: string,
-    testContent: string,
-    branch: string,
-    commitMessage: string
-): Promise<boolean> {
-    try {
-        const testFilePath = getTestFilePath(filePath);
-
-        // Check if test file already exists
-        let existingFile = null;
-        try {
-            const response = await octokit.repos.getContent({
-                owner,
-                repo,
-                path: testFilePath,
-                ref: branch,
-            });
-            if (!Array.isArray(response.data) && 'sha' in response.data) {
-                existingFile = response.data;
-            }
-        } catch (error) {
-            // File doesn't exist, which is fine
-        }
-
-        // Create or update the file
-        await octokit.repos.createOrUpdateFileContents({
-            owner,
-            repo,
-            path: testFilePath,
-            message: commitMessage,
-            content: Buffer.from(testContent).toString('base64'),
-            sha: existingFile?.sha,
-            branch: branch,
-        });
-
-        console.log(`✅ Successfully ${existingFile ? 'updated' : 'created'} test file: ${testFilePath}`);
-        return true;
-    } catch (error) {
-        console.error(`❌ Error creating/updating test file:`, error);
-        return false;
-    }
-}
-
-// Generate test file path
-function getTestFilePath(sourceFilePath: string): string {
-    const dirName = sourceFilePath.substring(0, sourceFilePath.lastIndexOf('/'));
-    const baseName = sourceFilePath.substring(sourceFilePath.lastIndexOf('/') + 1);
-    const nameWithoutExt = baseName.substring(0, baseName.lastIndexOf('.'));
-    const extension = baseName.substring(baseName.lastIndexOf('.'));
-
-    return `${dirName}/__tests__/${nameWithoutExt}.test${extension}`;
-}
-
-// Check if file should be processed
-function shouldProcessFile(filePath: string): boolean {
-    const supportedExtensions = ['.ts', '.js', '.tsx', '.jsx'];
-    const isTestFile = filePath.includes('__tests__') ||
-        filePath.endsWith('.test.ts') ||
-        filePath.endsWith('.test.js') ||
-        filePath.endsWith('.spec.ts') ||
-        filePath.endsWith('.spec.js');
-
-    return supportedExtensions.some(ext => filePath.endsWith(ext)) && !isTestFile;
-}
-
-// Generate tests directly using OpenAI
-async function generateTestsDirectly(
-    code: string,
-    framework: string,
-    filePath: string,
-    testFilePath: string,
-    changeType: ChangeType,
-    previousCode?: string,
-    existingTests?: string
-): Promise<{ tests: string; metadata: any }> {
-    const openai = getOpenAIClient();
-
-    if (!process.env.OPENAI_API_KEY) {
-        throw new Error('OpenAI API key not configured');
-    }
-
-    // Create prompt for OpenAI with enhanced context
-    const prompt = buildTestPrompt(code, framework, filePath, testFilePath, changeType, previousCode, existingTests);
-
-    // Call OpenAI API with structured output using the parse method
-    const completion = await openai.chat.completions.parse({
-        model: "gpt-4o",
-        messages: [
-            {
-                role: "system",
-                content: systemPrompt(framework)
-            },
-            {
-                role: "user",
-                content: prompt
-            }
-        ],
-        response_format: zodResponseFormat(TestGenerationSchema, 'test_generation'),
-        max_tokens: 3000,
-        temperature: 0.3,
-    });
-
-    const message = completion.choices[0]?.message;
-
-    if (!message?.parsed) {
-        throw new Error('Failed to generate tests from OpenAI');
-    }
-
-    const parsedOutput = message.parsed;
-    const { tests, ...metadata } = parsedOutput;
-
-    return {
-        tests: tests,
-        metadata: metadata
-    };
-}
-
-// Process a single file
-async function processFile(
-    octokit: any,
-    owner: string,
-    repo: string,
-    filePath: string,
-    branch: string,
-    baseBranch: string
-): Promise<boolean> {
-    try {
-        console.log(`🔍 Processing file: ${filePath}`);
-
-        // Get file content
-        const content = await getFileContent(octokit, owner, repo, filePath, branch);
-        if (!content) {
-            console.log(`⚠️ Could not get content for ${filePath}, skipping`);
-            return false;
-        }
-
-        // Check if test file already exists
-        const testFilePath = getTestFilePath(filePath);
-        const existingTests = await getFileContent(octokit, owner, repo, testFilePath, branch);
-        const changeType: ChangeType = existingTests ? 'update' : 'new';
-
-        console.log(`📝 ${changeType === 'update' ? 'Updating' : 'Creating'} tests for ${filePath}`);
-
-        // Get previous version of the file for comparison (if available)
-        let previousCode: string | undefined;
-        try {
-            // Get the base branch content for comparison
-            const baseContent = await getFileContent(octokit, owner, repo, filePath, baseBranch);
-            previousCode = baseContent || undefined;
-        } catch (error) {
-            console.log(`⚠️ Could not get previous version for ${filePath}, proceeding without it`);
-        }
-        // Generate tests directly using OpenAI
-        const result = await generateTestsDirectly(
-            content,
-            'jest',
-            filePath,
-            testFilePath,
-            changeType,
-            previousCode,
-            existingTests || undefined
-        );
-
-        // Create or update test file
-        const commitMessage = `${changeType === 'update' ? 'Update' : 'Add'} tests for ${filePath} [${BOT_SIGNATURE}]`;
-        const success = await createOrUpdateTestFile(
-            octokit,
-            owner,
-            repo,
-            filePath,
-            result.tests,
-            branch,
-            commitMessage
-        );
-
-        if (success) {
-            console.log(`✅ Generated tests for ${filePath}`);
-            console.log(`📊 Test metadata:`, result.metadata);
-        }
-
-        return success;
-    } catch (error) {
-        console.error(`❌ Error processing ${filePath}:`, error);
-        return false;
-    }
-}
-
-// Main webhook handler
+/**
+ * Main webhook handler - orchestrates the entire test generation process
+ */
 export async function handleWebhook(req: Request, res: Response): Promise<void> {
     try {
         // Verify webhook signature
@@ -286,13 +24,14 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
 
         const event = req.headers['x-github-event'] as string;
         console.log({ event }, '--event--');
+
         if (event !== 'pull_request') {
             console.log(`ℹ️ Ignoring non-pull_request event: ${event}`);
             res.status(200).json({ message: 'Event ignored' });
             return;
         }
 
-        const { action, pull_request, repository, installation } = req.body;
+        const { action, pull_request, repository } = req.body;
 
         if (!['opened', 'synchronize', 'reopened'].includes(action)) {
             console.log(`ℹ️ Ignoring PR action: ${action}`);
@@ -305,32 +44,21 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
         // Create Octokit instance
         const octokit = createOctokit();
 
-        // Get PR title and body (always available)
-        const prTitle = pull_request.title || '';
-        const prBody = pull_request.body || '';
-        const combinedPRText = `${prTitle} ${prBody}`;
-
         // Check if there are multiple commits
         const totalCommits = pull_request.commits;
         console.log(`📊 PR has ${totalCommits} commit(s)`);
 
-        let shouldSkip = false;
-        let skipReason = '';
+        let textToCheck = '';
 
         if (totalCommits === 1) {
             // Single commit - check PR title/body only
             console.log(`🔍 Single commit PR - checking PR title/body only`);
-
-            if (combinedPRText.includes(BOT_SIGNATURE)) {
-                shouldSkip = true;
-                skipReason = 'our bot commit in PR title/body';
-            } else if (combinedPRText.includes(SKIP_KEYWORD)) {
-                shouldSkip = true;
-                skipReason = '@iterate skip in PR title/body';
-            }
+            const prTitle = pull_request.title || '';
+            const prBody = pull_request.body || '';
+            textToCheck = `${prTitle} ${prBody}`;
         } else {
-            // Multiple commits - fetch latest commit message
-            console.log(`🔍 Multiple commits PR - fetching latest commit message`);
+            // Multiple commits - fetch latest commit message only
+            console.log(`🔍 Multiple commits PR - checking latest commit message only`);
 
             try {
                 const commitSha = pull_request.head.sha;
@@ -340,52 +68,41 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
                     ref: commitSha
                 });
                 const commitMessage = commitResponse.data.commit.message;
-                const combinedText = `${combinedPRText} ${commitMessage}`;
+                textToCheck = commitMessage;
                 console.log(`📝 Latest commit message: ${commitMessage}`);
-
-                if (combinedText.includes(BOT_SIGNATURE)) {
-                    shouldSkip = true;
-                    skipReason = 'our bot commit in PR or commit message';
-                } else if (combinedText.includes(SKIP_KEYWORD)) {
-                    shouldSkip = true;
-                    skipReason = '@iterate skip in PR or commit message';
-                }
             } catch (error) {
                 console.error(`❌ Error fetching commit message:`, error);
                 // Fallback to checking PR title/body only
-                if (combinedPRText.includes(BOT_SIGNATURE)) {
-                    shouldSkip = true;
-                    skipReason = 'our bot commit in PR title/body (fallback)';
-                } else if (combinedPRText.includes(SKIP_KEYWORD)) {
-                    shouldSkip = true;
-                    skipReason = '@iterate skip in PR title/body (fallback)';
-                }
+                console.log(`⚠️ Using fallback - checking PR title/body only`);
+                const prTitle = pull_request.title || '';
+                const prBody = pull_request.body || '';
+                textToCheck = `${prTitle} ${prBody}`;
             }
         }
 
-        if (shouldSkip) {
-            console.log(`⏭️ Skipping PR due to ${skipReason}`);
-            res.status(200).json({ message: `Skipping due to ${skipReason}` });
+        // Check for bot signature first (always skip)
+        if (textToCheck.includes(BOT_SIGNATURE)) {
+            console.log(`⏭️ Skipping PR due to our bot commit detected`);
+            res.status(200).json({ message: 'Skipping due to bot commit detected' });
             return;
         }
 
+        // Parse skip keyword
+        const skipInfo = parseSkipKeyword(textToCheck);
+        console.log(`🔍 Skip analysis: ${skipInfo.message}`);
 
         const owner = repository.owner.login;
         const repo = repository.name;
         const branch = pull_request.head.ref;
         const baseBranch = pull_request.base.ref;
 
-        // Get changed files
-        const filesResponse = await octokit.pulls.listFiles({
+        // Get changed files with diff information 
+        const { changedFiles, fileDiffs } = await getChangedFilesWithDiffs(
+            octokit,
             owner,
             repo,
-            pull_number: pull_request.number,
-        });
-
-        const changedFiles = filesResponse.data
-            .filter((file: any) => file.status !== 'removed')
-            .map((file: any) => file.filename)
-            .filter(shouldProcessFile);
+            pull_request.number
+        );
 
         console.log(`📁 Found ${changedFiles.length} files to process:`, changedFiles);
 
@@ -395,9 +112,29 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
             return;
         }
 
+        // Pre-fetch all file contents to avoid redundant API calls
+        const fileContents = await preFetchFileContents(
+            octokit,
+            owner,
+            repo,
+            changedFiles,
+            branch,
+            baseBranch
+        );
+
         // Process each file
         const results = await Promise.all(
-            changedFiles.map((file: any) => processFile(octokit, owner, repo, file, branch, baseBranch))
+            changedFiles.map((file: any) => processFile(
+                octokit,
+                owner,
+                repo,
+                file,
+                branch,
+                baseBranch,
+                skipInfo,
+                fileContents,
+                fileDiffs
+            ))
         );
 
         const successCount = results.filter(Boolean).length;
