@@ -8,6 +8,32 @@ import { verifyWebhookSignature } from './webhookVerification';
 const BOT_SIGNATURE = process.env.BOT_SIGNATURE || 'auto-tests-bot';
 
 /**
+ * Check if a branch should be processed based on configuration
+ */
+function isBranchAllowed(branchName: string): boolean {
+    const processBranches = process.env.PROCESS_BRANCHES || '*';
+
+    // If set to '*', process all branches
+    if (processBranches === '*') {
+        return true;
+    }
+
+    // Parse comma-separated branch patterns
+    const patterns = processBranches.split(',').map(p => p.trim());
+
+    return patterns.some(pattern => {
+        // Handle wildcard patterns (e.g., "feature/*")
+        if (pattern.includes('*')) {
+            const prefix = pattern.replace('*', '');
+            return branchName.startsWith(prefix);
+        }
+
+        // Handle exact matches
+        return branchName === pattern;
+    });
+}
+
+/**
  * Main webhook handler - orchestrates the entire test generation process
  */
 export async function handleWebhook(req: Request, res: Response): Promise<void> {
@@ -25,83 +51,55 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
         const event = req.headers['x-github-event'] as string;
         console.log({ event }, '--event--');
 
-        if (event !== 'pull_request') {
-            console.log(`ℹ️ Ignoring non-pull_request event: ${event}`);
+        if (event !== 'push') {
+            console.log(`ℹ️ Ignoring non-push event: ${event}`);
             res.status(200).json({ message: 'Event ignored' });
             return;
         }
 
-        const { action, pull_request, repository } = req.body;
+        const { ref, commits, before, after, repository } = req.body;
 
-        if (!['opened', 'synchronize', 'reopened'].includes(action)) {
-            console.log(`ℹ️ Ignoring PR action: ${action}`);
-            res.status(200).json({ message: 'Action ignored' });
+        // Check if branch should be processed
+        const branchName = ref.replace('refs/heads/', '');
+        const isAllowed = isBranchAllowed(branchName);
+
+        if (!isAllowed) {
+            console.log(`ℹ️ Ignoring push to branch: ${branchName}`);
+            res.status(200).json({ message: 'Branch ignored' });
             return;
         }
 
-        console.log(`🚀 Processing PR #${pull_request.number}: ${pull_request.title}`);
+        console.log(`🚀 Processing push: ${commits.length} commit(s) from ${before} to ${after}`);
 
         // Create Octokit instance
         const octokit = createOctokit();
 
-        // Check if there are multiple commits
-        const totalCommits = pull_request.commits;
-        console.log(`📊 PR has ${totalCommits} commit(s)`);
-
-        let textToCheck = '';
-
-        if (totalCommits === 1) {
-            // Single commit - check PR title/body only
-            console.log(`🔍 Single commit PR - checking PR title/body only`);
-            const prTitle = pull_request.title || '';
-            const prBody = pull_request.body || '';
-            textToCheck = `${prTitle} ${prBody}`;
-        } else {
-            // Multiple commits - fetch latest commit message only
-            console.log(`🔍 Multiple commits PR - checking latest commit message only`);
-
-            try {
-                const commitSha = pull_request.head.sha;
-                const commitResponse = await octokit.repos.getCommit({
-                    owner: repository.owner.login,
-                    repo: repository.name,
-                    ref: commitSha
-                });
-                const commitMessage = commitResponse.data.commit.message;
-                textToCheck = commitMessage;
-                console.log(`📝 Latest commit message: ${commitMessage}`);
-            } catch (error) {
-                console.error(`❌ Error fetching commit message:`, error);
-                // Fallback to checking PR title/body only
-                console.log(`⚠️ Using fallback - checking PR title/body only`);
-                const prTitle = pull_request.title || '';
-                const prBody = pull_request.body || '';
-                textToCheck = `${prTitle} ${prBody}`;
-            }
-        }
+        // Get the latest commit message for skip keyword checking
+        const latestCommit = commits[commits.length - 1];
+        const commitMessage = latestCommit?.message || '';
+        console.log(`📝 Latest commit message: ${commitMessage}`);
 
         // Check for bot signature first (always skip)
-        if (textToCheck.includes(BOT_SIGNATURE)) {
-            console.log(`⏭️ Skipping PR due to our bot commit detected`);
+        if (commitMessage.includes(BOT_SIGNATURE)) {
+            console.log(`⏭️ Skipping push due to our bot commit detected`);
             res.status(200).json({ message: 'Skipping due to bot commit detected' });
             return;
         }
 
         // Parse skip keyword
-        const skipInfo = parseSkipKeyword(textToCheck);
+        const skipInfo = parseSkipKeyword(commitMessage);
         console.log(`🔍 Skip analysis: ${skipInfo.message}`);
 
         const owner = repository.owner.login;
         const repo = repository.name;
-        const branch = pull_request.head.ref;
-        const baseBranch = pull_request.base.ref;
 
-        // Get changed files with diff information 
+        // Get changed files by comparing before and after SHAs
         const { changedFiles, fileDiffs } = await getChangedFilesWithDiffs(
             octokit,
             owner,
             repo,
-            pull_request.number
+            before,  // Previous state
+            after    // Current state
         );
 
         console.log(`📁 Found ${changedFiles.length} files to process:`, changedFiles);
@@ -118,8 +116,8 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
             owner,
             repo,
             changedFiles,
-            branch,
-            baseBranch
+            after,  // Current state
+            before  // Previous state
         );
 
         // Process each file
@@ -129,8 +127,8 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
                 owner,
                 repo,
                 file,
-                branch,
-                baseBranch,
+                branchName, // Use branch name for file operations
+                before,     // Previous state for comparison
                 skipInfo,
                 fileContents,
                 fileDiffs

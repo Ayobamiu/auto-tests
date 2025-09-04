@@ -1,29 +1,30 @@
 import OpenAI from 'openai';
-import { ChangeType } from '../types/types';
-import { buildTestPrompt, systemPrompt } from '../utils/prompts';
+import { systemPrompt, buildCompleteTestFilePrompt } from '../utils/prompts';
 import { zodResponseFormat } from 'openai/helpers/zod';
 import { TestGenerationSchema } from '../types/types';
 
 /**
  * Initialize OpenAI client for direct test generation
  */
-function getOpenAIClient(): OpenAI {
+export function getOpenAIClient(): OpenAI {
     return new OpenAI({
         apiKey: process.env.OPENAI_API_KEY,
     });
 }
 
+
 /**
- * Generate tests directly using OpenAI
+ * Generate complete test file using single-pass AI approach
+ * This function handles everything: change detection, cleanup, and test generation
  */
-export async function generateTestsDirectly(
-    code: string,
-    framework: string,
+export async function generateCompleteTestFile(
+    currentCode: string,
+    previousCode: string | null,
+    existingTests: string | null,
     filePath: string,
     testFilePath: string,
-    changeType: ChangeType,
-    previousCode?: string,
-    existingTests?: string
+    diff: string,
+    framework: string = 'jest'
 ): Promise<{ tests: string; metadata: any }> {
     const openai = getOpenAIClient();
 
@@ -31,10 +32,18 @@ export async function generateTestsDirectly(
         throw new Error('OpenAI API key not configured');
     }
 
-    // Create prompt for OpenAI with enhanced context
-    const prompt = buildTestPrompt(code, framework, filePath, testFilePath, changeType, previousCode, existingTests);
+    // Create prompt for complete test file generation
+    const prompt = buildCompleteTestFilePrompt(
+        currentCode,
+        previousCode,
+        existingTests,
+        filePath,
+        testFilePath,
+        diff,
+        framework
+    );
 
-    // Call OpenAI API with structured output using the parse method
+    // Call OpenAI API with structured output
     const completion = await openai.chat.completions.parse({
         model: "gpt-4o",
         messages: [
@@ -48,14 +57,14 @@ export async function generateTestsDirectly(
             }
         ],
         response_format: zodResponseFormat(TestGenerationSchema, 'test_generation'),
-        max_tokens: 3000,
+        max_tokens: 4000,
         temperature: 0.3,
     });
 
     const message = completion.choices[0]?.message;
 
     if (!message?.parsed) {
-        throw new Error('Failed to generate tests from OpenAI');
+        throw new Error('Failed to generate complete test file from OpenAI');
     }
 
     const parsedOutput = message.parsed;

@@ -65,7 +65,7 @@ export async function createOrUpdateTestFile(
     repo: string,
     filePath: string,
     testContent: string,
-    branch: string,
+    ref: string,
     commitMessage: string
 ): Promise<boolean> {
     try {
@@ -78,7 +78,7 @@ export async function createOrUpdateTestFile(
                 owner,
                 repo,
                 path: testFilePath,
-                ref: branch,
+                ref: ref,
             });
             if (!Array.isArray(response.data) && 'sha' in response.data) {
                 existingFile = response.data;
@@ -95,7 +95,7 @@ export async function createOrUpdateTestFile(
             message: commitMessage,
             content: Buffer.from(testContent).toString('base64'),
             sha: existingFile?.sha,
-            branch: branch,
+            branch: ref,
         });
 
         console.log(`✅ Successfully ${existingFile ? 'updated' : 'created'} test file: ${testFilePath}`);
@@ -139,26 +139,28 @@ export async function getChangedFilesWithDiffs(
     octokit: Octokit,
     owner: string,
     repo: string,
-    pullNumber: number
+    before: string,
+    after: string
 ): Promise<{
     changedFiles: string[];
     fileDiffs: Map<string, any>;
 }> {
-    const filesResponse = await octokit.pulls.listFiles({
+    const filesResponse = await octokit.repos.compareCommits({
         owner,
         repo,
-        pull_number: pullNumber,
+        base: before,
+        head: after,
     });
 
-    const changedFiles = filesResponse.data
-        .filter((file: any) => file.status !== 'removed')
+    const changedFiles = filesResponse.data.files
+        ?.filter((file: any) => file.status !== 'removed')
         .map((file: any) => file.filename)
-        .filter(shouldProcessFile);
+        .filter(shouldProcessFile) || [];
 
     // Store file diff information for more accurate change detection
     const fileDiffs = new Map<string, any>();
-    filesResponse.data
-        .filter((file: any) => shouldProcessFile(file.filename))
+    filesResponse.data.files
+        ?.filter((file: any) => shouldProcessFile(file.filename))
         .forEach((file: any) => {
             fileDiffs.set(file.filename, {
                 status: file.status,
@@ -180,8 +182,8 @@ export async function preFetchFileContents(
     owner: string,
     repo: string,
     changedFiles: string[],
-    branch: string,
-    baseBranch: string
+    after: string,
+    before: string
 ): Promise<Map<string, {
     current: string | null;
     base: string | null;
@@ -200,9 +202,9 @@ export async function preFetchFileContents(
         const testFilePath = getTestFilePath(filePath);
 
         const [currentContent, baseContent, testContent] = await Promise.all([
-            getFileContent(octokit, owner, repo, filePath, branch),
-            getFileContent(octokit, owner, repo, filePath, baseBranch),
-            getFileContent(octokit, owner, repo, testFilePath, branch)
+            getFileContent(octokit, owner, repo, filePath, after),
+            getFileContent(octokit, owner, repo, filePath, before),
+            getFileContent(octokit, owner, repo, testFilePath, after)
         ]);
 
         fileContents.set(filePath, {

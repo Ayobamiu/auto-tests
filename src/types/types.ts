@@ -1,39 +1,14 @@
 import { z } from 'zod';
 
-export type ChangeType = 'new' | 'update' | 'regenerate';
-
-// Enhanced change detection types
-export type CodeChangeType =
-    | 'comment-only'           // Only comments changed
-    | 'whitespace-only'        // Only whitespace/formatting changed
-    | 'import-only'            // Only import statements changed
-    | 'function-addition'      // New functions added
-    | 'function-removal'       // Functions removed
-    | 'function-modification'  // Existing functions modified
-    | 'mixed'                  // Multiple types of changes
-    | 'no-changes'             // No actual changes detected
-    | 'unknown';               // Could not determine change type
-
-export interface ChangeAnalysis {
-    changeType: CodeChangeType;
-    hasCodeChanges: boolean;
-    hasFunctionRemovals: boolean;
-    hasFunctionAdditions: boolean;
-    hasFunctionModifications: boolean;
-    removedFunctions: string[];
-    addedFunctions: string[];
-    modifiedFunctions: string[];
-}
-
-// Request body interface
+// Request body interface for single-pass AI approach
 export interface GenerateTestsRequest {
     code: string;
     framework: string;
     filePath: string;
     testFilePath: string;
-    changeType?: ChangeType;
     previousCode?: string;
     existingTests?: string;
+    diff?: string;
 }
 
 // Zod schema for structured output

@@ -1,22 +1,20 @@
 import { Octokit } from '@octokit/rest';
-import { ChangeType } from '../types/types';
-import { analyzeCodeChangesFromDiff } from './changeDetection';
-import { generateTestsDirectly } from './testGeneration';
-import { cleanupRemovedFunctionTests } from './testCleanup';
+import { generateCompleteTestFile } from './testGeneration';
 import { createOrUpdateTestFile } from './githubOperations';
 
 const BOT_SIGNATURE = process.env.BOT_SIGNATURE || 'auto-tests-bot';
 
 /**
- * Process a single file with smart change detection
+ * Process a single file using single-pass AI approach
+ * This function uses one AI call to handle everything: change detection, cleanup, and test generation
  */
 export async function processFile(
     octokit: Octokit,
     owner: string,
     repo: string,
     filePath: string,
-    branch: string,
-    baseBranch: string,
+    branchName: string,
+    before: string,
     skipInfo: { shouldSkip: boolean; cleanupRemovedFunctions: boolean },
     fileContents: Map<string, { current: string | null; base: string | null; test: string | null; testFilePath: string }>,
     fileDiffs: Map<string, any>
@@ -32,34 +30,19 @@ export async function processFile(
         }
 
         const { current: content, base: previousCode, test: existingTests, testFilePath } = contents;
+        console.log({
+            content: JSON.stringify(content, null, 2),
+            previousCode: JSON.stringify(previousCode, null, 2),
+            existingTests: JSON.stringify(existingTests, null, 2),
+        });
 
         // Get diff information for this file
         const fileDiff = fileDiffs.get(filePath);
         const patch = fileDiff?.patch || '';
 
-        // Analyze code changes using GitHub diff for more accuracy
-        const changeAnalysis = analyzeCodeChangesFromDiff(patch, content, previousCode);
-        console.log(`🔍 Change analysis for ${filePath}:`, {
-            changeType: changeAnalysis.changeType,
-            hasCodeChanges: changeAnalysis.hasCodeChanges,
-            removedFunctions: changeAnalysis.removedFunctions,
-            addedFunctions: changeAnalysis.addedFunctions
-        });
-
-        // Always cleanup removed functions if they exist and cleanup is enabled
-        if (changeAnalysis.hasFunctionRemovals && skipInfo.cleanupRemovedFunctions) {
-            console.log(`🗑️ Cleaning up tests for removed functions: ${changeAnalysis.removedFunctions.join(', ')}`);
-            const cleanupSuccess = await cleanupRemovedFunctionTests(
-                octokit,
-                owner,
-                repo,
-                filePath,
-                changeAnalysis.removedFunctions,
-                branch
-            );
-            if (!cleanupSuccess) {
-                console.error(`❌ Failed to cleanup tests for removed functions in ${filePath}`);
-            }
+        // Debug: Log the patch content to understand what's being detected
+        if (patch) {
+            console.log(`🔍 Patch content for ${filePath}:`, patch.substring(0, 500) + (patch.length > 500 ? '...' : ''));
         }
 
         // Skip test generation if requested
@@ -68,40 +51,33 @@ export async function processFile(
             return true;
         }
 
-        // Skip if only comments/whitespace changed
-        if (changeAnalysis.changeType === 'comment-only' || changeAnalysis.changeType === 'whitespace-only') {
-            console.log(`⏭️ Skipping test generation for ${filePath} - only ${changeAnalysis.changeType} changes detected`);
-            return true;
-        }
+        console.log(`📝 Generating complete test file for ${filePath} using single-pass AI approach`);
 
-        const changeType: ChangeType = existingTests ? 'update' : 'new';
-        console.log(`📝 ${changeType === 'update' ? 'Updating' : 'Creating'} tests for ${filePath}`);
-
-        // Generate tests directly using OpenAI
-        const result = await generateTestsDirectly(
+        // Use single-pass AI approach to generate complete test file
+        const result = await generateCompleteTestFile(
             content,
-            'jest',
+            previousCode,
+            existingTests,
             filePath,
             testFilePath,
-            changeType,
-            previousCode || undefined,
-            existingTests || undefined
+            patch,
+            'jest'
         );
 
         // Create or update test file
-        const commitMessage = `${changeType === 'update' ? 'Update' : 'Add'} tests for ${filePath} [${BOT_SIGNATURE}]`;
+        const commitMessage = `Update tests for ${filePath} [${BOT_SIGNATURE}]`;
         const success = await createOrUpdateTestFile(
             octokit,
             owner,
             repo,
             filePath,
             result.tests,
-            branch,
+            branchName,
             commitMessage
         );
 
         if (success) {
-            console.log(`✅ Generated tests for ${filePath}`);
+            console.log(`✅ Generated complete test file for ${filePath}`);
             console.log(`📊 Test metadata:`, result.metadata);
         }
 

@@ -1,25 +1,17 @@
 import express, { Request, Response, Router } from 'express';
-import OpenAI from 'openai';
 import dotenv from 'dotenv';
-import { buildTestPrompt, systemPrompt } from '../utils/prompts';
-import { zodResponseFormat } from 'openai/helpers/zod';
 import { requireApiKey } from '../middleware/requireApiKey';
-import { GenerateTestsRequest, GenerateTestsResponse, TestGenerationSchema, ChangeType } from '../types/types';
+import { generateCompleteTestFile } from '../github-app/testGeneration';
+import { GenerateTestsRequest, GenerateTestsResponse } from '../types/types';
 
 dotenv.config();
 
 const router = Router();
 
-// Initialize OpenAI client
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-});
-
-
 // POST /api/generate-tests
 router.post('/generate-tests', requireApiKey, async (req: Request, res: Response) => {
     try {
-        const { code, framework, filePath, testFilePath, changeType, previousCode, existingTests }: GenerateTestsRequest = req.body;
+        const { code, framework, filePath, testFilePath, previousCode, existingTests, diff }: GenerateTestsRequest = req.body;
 
         // Validate request body
         if (!code || typeof code !== 'string') {
@@ -46,50 +38,27 @@ router.post('/generate-tests', requireApiKey, async (req: Request, res: Response
             });
         }
 
-
         if (!process.env.OPENAI_API_KEY) {
             return res.status(500).json({
                 error: 'OpenAI API key not configured'
             });
         }
 
-
-        // Create prompt for OpenAI with enhanced context
-        const prompt = buildTestPrompt(code, framework, filePath, testFilePath, changeType as ChangeType || 'new', previousCode, existingTests);
-
-        // Call OpenAI API with structured output using the parse method
-        const completion = await openai.chat.completions.parse({
-            model: "gpt-4o",
-            messages: [
-                {
-                    role: "system",
-                    content: systemPrompt(framework)
-                },
-                {
-                    role: "user",
-                    content: prompt
-                }
-            ],
-            response_format: zodResponseFormat(TestGenerationSchema, 'test_generation'),
-            max_tokens: 3000,
-            temperature: 0.3,
-        });
-
-        const message = completion.choices[0]?.message;
-
-        if (!message?.parsed) {
-            return res.status(500).json({
-                error: 'Failed to generate tests from OpenAI'
-            });
-        }
-
-        const parsedOutput = message.parsed;
-        const { tests, ...metadata } = parsedOutput;
+        // Use single-pass AI approach to generate complete test file
+        const result = await generateCompleteTestFile(
+            code,
+            previousCode || null,
+            existingTests || null,
+            filePath,
+            testFilePath,
+            diff || '',
+            framework
+        );
 
         const response: GenerateTestsResponse = {
-            tests: tests,
-            comments: metadata.comments,
-            metadata: metadata
+            tests: result.tests,
+            comments: result.metadata.comments,
+            metadata: result.metadata
         };
 
         res.json(response);

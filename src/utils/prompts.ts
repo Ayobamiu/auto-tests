@@ -1,4 +1,3 @@
-import { ChangeType } from "../types/types";
 
 export function systemPrompt(framework: string) {
   return `
@@ -20,91 +19,66 @@ You are a senior software engineer who specializes in writing high-quality unit 
 `;
 }
 
-function getContextSection(changeType: ChangeType = 'new', filePath: string, testFilePath: string, previousCode?: string, existingTests?: string): string {
-  let contextSection = '';
 
-  if (changeType === 'update' && existingTests) {
-    contextSection = `
-    EXISTING TESTS CONTEXT:
-    - Current test file exists at: ${testFilePath}
-    - Existing test content:
-    \`\`\`typescript
-    ${existingTests}
-    \`\`\`
-    - Your job is to preserve these existing tests, and ONLY generate new ones for newly added or changed functions
-
-
-    UPDATE STRATEGY:
-    - Keep existing tests unchanged unless they're invalid or outdated (very rare)
-    - ONLY add tests for newly added or modified functions
-    - Maintain consistency in import statements, naming, structure
-    - Return test code as-is without any extra formatting or comments
-    - Preserve valuable existing tests
-    - Update tests for changed behavior
-    - Remove tests for removed functionality
-    - Explain what you're changing and why
-    `;
-  } else if (changeType === 'regenerate') {
-    contextSection = `
-    REGENERATION CONTEXT:
-    - You are completely regenerating tests for: ${filePath}
-    - Previous code (if available):
-    \`\`\`typescript
-    ${previousCode || 'Not available'}
-    \`\`\`
-    - Existing tests (for reference):
-    \`\`\`typescript
-    ${existingTests || 'Not available'}
-    \`\`\`
-
-    REGENERATION STRATEGY:
-    - Analyze existing tests for quality
-    - Keep high-quality tests if they still apply
-    - Regenerate poor or outdated tests
-    - Provide reasoning for your decisions
-    `;
-  }
-
-  return contextSection;
-}
-
-export function buildTestPrompt(
-  code: string,
-  framework: string,
+/**
+ * Build prompt for complete test file generation (single-pass approach)
+ * This prompt gives the AI all context and asks it to return the complete, correct test file
+ */
+export function buildCompleteTestFilePrompt(
+  currentCode: string,
+  previousCode: string | null,
+  existingTests: string | null,
   filePath: string,
   testFilePath: string,
-  changeType: ChangeType = 'new',
-  previousCode?: string,
-  existingTests?: string
-) {
-
-  const contextSection = getContextSection(changeType, filePath, testFilePath, previousCode, existingTests);
-
+  diff: string,
+  framework: string = 'jest'
+): string {
   return `
-Write comprehensive unit tests for the following code using **${framework}**.
+You are a test file manager. Your job is to analyze the current state and return the complete, correct test file.
 
-IMPORTANT CONTEXT:
-- Source file: ${filePath}
-- Test file will be saved at: ${testFilePath}
-- Change type: ${changeType}
-- Use the correct relative import path from test to source
+## CONTEXT:
+- **Source file**: ${filePath}
+- **Test file**: ${testFilePath}
+- **Framework**: ${framework}
 
-${contextSection}
-
-Requirements:
-- Do not change the original code's logic
-- Cover normal, edge, and error cases
-- Use descriptive test names
-- Generate the correct import statement using relative path
-- Use Jest standard syntax with 'it()' statements (not 'test()')
-- Follow ${framework} best practices
-- Return JSON with the exact structure requested
-
-Code to test:
+## CURRENT CODE (what exists now):
 \`\`\`typescript
-${code}
+${currentCode}
 \`\`\`
 
-Generate ${framework} tests with correct imports and ${framework} syntax:
+## PREVIOUS CODE (what existed before):
+\`\`\`typescript
+${previousCode || 'Not available'}
+\`\`\`
+
+## EXISTING TESTS (current test file):
+\`\`\`typescript
+${existingTests || 'No existing tests'}
+\`\`\`
+
+## CHANGES (Git diff):
+\`\`\`
+${diff}
+\`\`\`
+
+## YOUR TASK:
+Return the complete, correct test file that:
+
+1. **Only tests functions that exist in CURRENT CODE**
+2. **Removes tests for functions that were removed** (not in current code)
+3. **Adds tests for functions that were added** (new in current code)
+4. **Preserves tests for unchanged functions** (exist in both current and previous code)
+5. **Updates imports to match current functions only**
+6. **Uses correct relative import path from test to source file**
+7. **Follows ${framework} best practices**
+
+## IMPORTANT:
+- Return the COMPLETE test file, not just new tests
+- Include proper imports for all current functions
+- Remove any tests for functions that no longer exist
+- Use 'describe' and 'it' syntax for ${framework}
+- Make sure all tests are runnable and valid
+
+Generate the complete ${framework} test file:
 `;
 }
